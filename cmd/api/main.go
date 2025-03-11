@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"codebase-go/internal/config"
+	"codebase-go/internal/database/mongo"
+	"codebase-go/internal/database/redis"
 
 	"github.com/gin-gonic/gin"
 )
@@ -43,6 +45,29 @@ func main() {
 		Addr:    serverAddr,
 		Handler: router,
 	}
+
+	mongodb, err := mongo.NewMongoDB(cfg)
+	if err != nil {
+		fmt.Printf("failed to connect to MongoDB: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("success connect to MongoDB: %s\n", cfg.Database.Name)
+
+	defer func() {
+		if err := mongodb.Close(context.Background()); err != nil {
+			fmt.Printf("failed to close MongoDB conn: %v\n", err)
+		}
+	}()
+
+	redisClient, err := redis.NewRedis(cfg)
+	if err != nil {
+		fmt.Printf("failed to connect Redis: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("success connect to Redis on %s:%s\n", cfg.Redis.Host, cfg.Redis.Port)
+	defer redisClient.Close()
 
 	serverCtx, serverStopCtx := context.WithCancel(context.Background())
 
