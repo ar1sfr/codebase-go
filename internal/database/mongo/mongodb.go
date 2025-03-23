@@ -41,3 +41,7 @@ func NewMongoDB(cfg *config.Config) (*MongoDB, error) {
 func (m *MongoDB) Close(ctx context.Context) error {
 	return m.Client.Disconnect(ctx)
 }
+
+func (m *MongoDB) CheckConnection(ctx context.Context) error {
+	return m.Client.Ping(ctx, nil)
+}

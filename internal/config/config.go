@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -12,6 +13,7 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	Redis    RedisConfig
+	CORS     CORSConfig
 	Env      string
 }
 
@@ -32,6 +34,15 @@ type RedisConfig struct {
 	Password string
 	DB       int
 	PoolSize int
+}
+
+type CORSConfig struct {
+	AllowOrigins     []string
+	AllowMethods     []string
+	AllowHeaders     []string
+	ExposeHeaders    []string
+	AllowCredentials bool
+	MaxAge           int
 }
 
 func LoadConfig() (*Config, error) {
@@ -56,6 +67,14 @@ func LoadConfig() (*Config, error) {
 			Password: getEnv("REDIS_PASSWORD", ""),
 			DB:       getEnvAsInt("REDIS_DB", 0),
 			PoolSize: getEnvAsInt("REDIS_POOL_SIZE", 100),
+		},
+		CORS: CORSConfig{
+			AllowOrigins:     strings.Split(getEnv("CORS_ALLOW_ORIGINS", "*"), ","),
+			AllowMethods:     strings.Split(getEnv("CORS_ALLOW_METHODS", "GET,POST,PUT,PATCH,DELETE,OPTIONS"), ","),
+			AllowHeaders:     strings.Split(getEnv("CORS_ALLOW_HEADERS", "Content-Type,Authorization,X-CSRF_Token"), ","),
+			ExposeHeaders:    strings.Split(getEnv("CORS_EXPOSE_HEADERS", ""), ","),
+			AllowCredentials: getEnvAsBool("CORS_ALLOW_CREDENTIALS", true),
+			MaxAge:           getEnvAsInt("CORS_MAX_AGE", 300),
 		},
 		Env: getEnv("ENV", "development"),
 	}
@@ -83,4 +102,18 @@ func getEnvAsInt(key string, defaultValue int) int {
 	}
 
 	return intVal
+}
+
+func getEnvAsBool(key string, defaultValue bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+
+	boolVar, err := strconv.ParseBool(value)
+	if err != nil {
+		return defaultValue
+	}
+
+	return boolVar
 }

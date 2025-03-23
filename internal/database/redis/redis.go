@@ -43,3 +43,7 @@ func NewRedis(cfg *config.Config) (*Redis, error) {
 func (r *Redis) Close() error {
 	return r.Client.Close()
 }
+
+func (r *Redis) CheckConnection(ctx context.Context) error {
+	return r.Client.Ping(ctx).Err()
+}

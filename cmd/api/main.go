@@ -12,9 +12,34 @@ import (
 	"codebase-go/internal/config"
 	"codebase-go/internal/database/mongo"
 	"codebase-go/internal/database/redis"
+	"codebase-go/internal/middleware/cors"
+	"codebase-go/pkg/logger"
+	"codebase-go/pkg/wrapper"
 
 	"github.com/gin-gonic/gin"
 )
+
+func monitorConnection(ctx context.Context, mongodb *mongo.MongoDB, redisClient *redis.Redis) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// check mongodb conn
+			if err := mongodb.CheckConnection(ctx); err != nil {
+				logger.Error("mongodb connection lost", err)
+			}
+
+			// check redis conn
+			if err := redisClient.CheckConnection(ctx); err != nil {
+				logger.Error("redis connection lost", err)
+			}
+		}
+	}
+}
 
 func main() {
 	// load configuration
@@ -24,19 +49,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	if cfg.Env != "development" {
+	logger.Init(cfg.Env)
+
+	if cfg.Env != "development" && cfg.Env != "local" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	// initiate router
 	router := gin.Default()
+	router.Use(cors.CORS(cfg))
 
 	router.GET("/health-check", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status": "OK",
-			"code":   200,
-			"env":    cfg.Env,
-			"time":   time.Now(),
+		wrapper.Success(c, gin.H{
+			"env":  cfg.Env,
+			"time": time.Now(),
 		})
 	})
 
@@ -46,13 +72,14 @@ func main() {
 		Handler: router,
 	}
 
+	// connect to database (mongoDB)
 	mongodb, err := mongo.NewMongoDB(cfg)
 	if err != nil {
-		fmt.Printf("failed to connect to MongoDB: %v\n", err)
+		logger.Error("failed to connect MongoDB", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("success connect to MongoDB: %s\n", cfg.Database.Name)
+	logger.Info("success connect to MongoDB", "database", cfg.Database.Name)
 
 	defer func() {
 		if err := mongodb.Close(context.Background()); err != nil {
@@ -60,16 +87,19 @@ func main() {
 		}
 	}()
 
+	// connect to redis
 	redisClient, err := redis.NewRedis(cfg)
 	if err != nil {
-		fmt.Printf("failed to connect Redis: %v\n", err)
+		logger.Error("failed to connect redis", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("success connect to Redis on %s:%s\n", cfg.Redis.Host, cfg.Redis.Port)
+	logger.Info("success connect to redis", "host", cfg.Redis.Host, "port", cfg.Redis.Port)
 	defer redisClient.Close()
 
 	serverCtx, serverStopCtx := context.WithCancel(context.Background())
+
+	go monitorConnection(serverCtx, mongodb, redisClient)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
@@ -93,10 +123,10 @@ func main() {
 		serverStopCtx()
 	}()
 
-	fmt.Printf("server is running on %s in %s mode\n", serverAddr, cfg.Env)
+	logger.Info("server is starting on", "address", serverAddr, "environment", cfg.Env)
 	err = server.ListenAndServe()
 	if err != nil && err != http.ErrServerClosed {
-		fmt.Printf("error starting server: %s\n", err)
+		logger.Error("failed to start server", err)
 	}
 
 	<-serverCtx.Done()
